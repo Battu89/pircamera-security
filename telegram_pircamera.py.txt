@@ -1,0 +1,69 @@
+# Importación de librerías necesarias
+import os                  # Para manejo de archivos (eliminar imágenes)
+import requests            # Para enviar solicitudes HTTP a la API de Telegram
+import datetime            # Para generar marcas de tiempo
+import time                # Para pausas temporales entre ejecuciones
+import RPi.GPIO as GPIO    # Para controlar los pines GPIO de la Raspberry Pi
+import picamera            # Para interactuar con la cámara oficial de la Raspberry Pi
+
+# --- Configuración del bot de Telegram ---
+BOT_TOKEN = '7669407155:AAHwC8bUYnDCXemjvLgHvmIS34LCj3DllXg'  # Token del bot de Telegram
+CHAT_ID = '6222484832'                                        # ID del chat de destino (usuario o grupo)
+API_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto'  # URL de la API para enviar fotos
+
+# --- Configuración de los GPIO ---
+GPIO.setmode(GPIO.BCM)         # Usar el sistema de numeración BCM para los pines
+GPIO.setwarnings(False)        # Desactiva advertencias si el pin ya está en uso
+
+PIR_PIN = 18                   # Pin GPIO donde está conectado el sensor PIR
+LED_PIN = 23                   # Pin GPIO donde está conectado un LED indicador
+
+GPIO.setup(PIR_PIN, GPIO.IN)   # Configura el pin del PIR como entrada
+GPIO.setup(LED_PIN, GPIO.OUT)  # Configura el pin del LED como salida
+
+# --- Inicialización de la cámara ---
+try:
+    camera = picamera.PiCamera()                 # Intenta crear el objeto cámara
+    camera.resolution = (1024, 768)              # Establece la resolución de la imagen
+    print("Cámara inicializada correctamente")   # Mensaje de éxito
+except:
+    print("No se pudo inicializar la cámara")    # Mensaje de error si falla
+    camera = None                                # Asegura que no se use una cámara nula
+
+print("Sistema iniciado - Esperando movimiento...")
+
+# --- Bucle principal ---
+try:
+    while True:
+        if GPIO.input(PIR_PIN):  # Verifica si el sensor PIR detectó movimiento
+            print("Movimiento detectado")
+            GPIO.output(LED_PIN, GPIO.HIGH)  # Enciende el LED para indicar captura
+
+            # Genera nombre único basado en fecha y hora
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"mov_{timestamp}.jpg"
+
+            if camera:
+                camera.capture(filename)  # Toma la foto con la cámara
+                print(f"Foto guardada como {filename}")
+
+                # Abre la imagen y la envía al chat de Telegram
+                with open(filename, 'rb') as photo:
+                    response = requests.post(API_URL, data={'chat_id': CHAT_ID}, files={'photo': photo})
+
+                # Verifica si se envió correctamente
+                if response.status_code == 200:
+                    print("Imagen enviada a Telegram con éxito")
+                    os.remove(filename)  # Borra la imagen del sistema
+                    print(f"Imagen {filename} eliminada del sistema")
+                else:
+                    print(f"Error al enviar imagen: {response.text}")
+
+            time.sleep(5)  # Espera 5 segundos antes de continuar
+            GPIO.output(LED_PIN, GPIO.LOW)  # Apaga el LED
+        time.sleep(0.1)  # Revisa el sensor cada 100 milisegundos
+
+# --- Finalización segura ---
+except KeyboardInterrupt:
+    print("Finalizando...")
+    GPIO.cleanup()  # Limpia los estados de los GPIO
